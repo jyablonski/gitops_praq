@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitops-praq
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: gitops-praq
+  template:
+    metadata:
+      labels:
+        app: gitops-praq
+    spec:
+      containers:
+        - name: gitops-praq
+          image: your-account.dkr.ecr.us-west-2.amazonaws.com/your-ecr-repo:production
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

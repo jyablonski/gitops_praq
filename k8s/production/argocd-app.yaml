@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-praq-prod
+  namespace: argocd
+  annotations:
+    # tell Image Updater to watch this image
+    argocd-image-updater.argoproj.io/image-list: app=123456789.dkr.ecr.us-west-2.amazonaws.com/gitops-praq
+
+    # only consider the 'production' tag
+    argocd-image-updater.argoproj.io/app.image-tag-filter: ^production$
+
+    # Update strategy: replace with latest matching tag
+    argocd-image-updater.argoproj.io/app.update-strategy: latest
+
+    # Optional: write back to git or just update in-cluster
+    argocd-image-updater.argoproj.io/write-back-method: application
+spec:
+  source:
+    repoURL: https://github.com/jyablonski/gitops-praq
+    path: k8s/production
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production

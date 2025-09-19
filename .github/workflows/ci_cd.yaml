@@ -1,0 +1,100 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+env:
+  IAM_ROLE: ${{ secrets.IAM_ROLE }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPO: ${{ secrets.ECR_REPO }}
+
+jobs:
+  ci_pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run tests
+        run: make test
+
+      - name: Build production image
+        run: make build
+
+  deploy_staging:
+    runs-on: ubuntu-latest
+    needs: ci_pipeline
+    if: github.event_name == 'pull_request' && success()
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker Image to ECR (Staging)
+        uses: jyablonski/actions/deploy@v1
+        with:
+          role-to-assume: ${{ env.IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          ecr-repo: ${{ env.ECR_REPO }}
+          image-name: gitops-praq-${{ github.sha }}  # Tag with project name + SHA
+          dockerfile: docker/Dockerfile
+          context: .
+
+  # Promote staging image to production on main branch push
+  promote_to_production:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+    environment: production
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Promote staging image to production
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPO }}
+          SOURCE_TAG: gitops-praq-${{ github.sha }}
+        run: |
+            # Pull the staging image (tagged with SHA)
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$SOURCE_TAG
+            
+            # Tag it for production
+            docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SOURCE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:production
+            
+            # Push the production tag
+            docker push $ECR_REGISTRY/$ECR_REPOSITORY:production
+            
+            echo "Successfully promoted SHA $SOURCE_TAG to production"
+            echo "Production image: $ECR_REGISTRY/$ECR_REPOSITORY:production"
+            echo "Original SHA tag: $ECR_REGISTRY/$ECR_REPOSITORY:$SOURCE_TAG"
+
+        # this isnt actually needed for the gitops image updater workflow
+    #   - name: Trigger ArgoCD Sync
+    #     env:
+    #       ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+    #       ARGOCD_TOKEN: ${{ secrets.ARGOCD_TOKEN }}
+    #     run: |
+    #         echo "Successfully promoted SHA $SOURCE_TAG to production"
+    #         echo "Production image: $ECR_REGISTRY/$ECR_REPOSITORY:production"
+    #         echo "Original SHA tag: $ECR_REGISTRY/$ECR_REPOSITORY:$SOURCE_TAG"
+            
+    #         echo "Triggering ArgoCD sync for production application..."
+    #         #   curl -X POST \
+    #         #     -H "Authorization: Bearer $ARGOCD_TOKEN" \
+    #         #     -H "Content-Type: application/json" \
+    #         #     "$ARGOCD_SERVER/api/v1/applications/gitops-praq-prod/sync" \
+    #         #     -d '{"prune": false, "dryRun": false, "strategy": {"hook": {}}}'
+    #         echo "ArgoCD sync triggered."

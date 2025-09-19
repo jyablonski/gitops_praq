@@ -1,0 +1,13 @@
+services:
+  test_runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        INSTALL_DEV_DEPENDENCIES: "true"
+    image: gitops_praq_test_runner
+    volumes:
+      - ${PWD}/pyproject.toml:/app/pyproject.toml
+      - ${PWD}/src/:/app/src
+      - ${PWD}/tests/:/app/tests
+    command: python3 -m pytest --color=yes
